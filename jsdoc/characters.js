@@ -1,0 +1,6 @@
+
+/**
+ * @typedef Character
+ * @type {}
+ */
+  

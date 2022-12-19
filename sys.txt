@@ -1,0 +1,417 @@
+let cmds = [];
+let keyCache = [];
+
+let gDobj = {};
+let gDobjId = "";
+
+let msg = (str, options) => {};
+
+const once = (label, str) => {
+  const id = `d${stringToHash(label)}`;
+
+  if (!g$[id]) {
+    msg(str);
+    g$[id] = true;
+  }
+};
+
+let clear = (onCompleted) => {};
+
+let resetSuggestions = () => {};
+
+let execute = (commandString) => {
+  const commandList = cmds.map(c => {
+    return { obj: c, label: fixLabel(c, c.$)}
+  });
+  const cmd = commandList.filter(c => c.label === commandString)[0]?.obj;
+  if (cmd) {
+    gDobjId = cmd.objId;
+    gDobj = cmd.obj;
+    const v = typeof cmd.verify === "function" && cmd.verify();
+    if (v) {
+      clear(() => msg(v));
+    } else {
+      clear(() => {
+        const action = cmd.action();
+        if (action) {
+          msg(action);
+          refreshCommands();
+        }
+      });
+    }  
+  }
+};
+
+let refreshCommands = () => {
+  const presentThings = getAllInLocation(g$.location);
+
+  const commonCommands = g$.common.commands
+    .map((c) => {
+      const check = c.check;
+      if (typeof check === "function" && check() === false) {
+        return "";
+      }
+      return c;
+    })
+    .filter((c) => c !== "");
+
+  const thingCommands = presentThings
+    .filter((m) => g$[m].commands !== undefined)
+    .map((c) => {
+      let commands = g$[c].commands();
+      commands.map((cm) => {
+        cm.objId = c;
+        cm.obj = g$[c];
+      });
+      return commands
+        .filter((cm) => {
+          const check = cm.check;
+          gDobj = cm.obj;
+          gDobjId = cm.objId;
+          if (typeof check === "function" && check() === false) {
+            return false;
+          }
+          return true;
+        })
+        .map((cm) => {
+          gDobj = cm.obj;
+          gDobjId = cm.objId;
+          if (typeof cm === "function") {
+            return cm();
+          } else {
+            return cm;
+          }
+        });
+    });
+
+  cmds = [
+    ...g$[g$.location]
+      .commands()
+      .map((c) => {
+        const check = c.check;
+        if (typeof check === "function" && check() === false) {
+          return "";
+        }
+        return c;
+      })
+      .filter((f) => f != ""),
+    ...commonCommands,
+  ];
+  for (const a of thingCommands) {
+    for (const b of a) {
+      cmds.push(b);
+    }
+  }
+};
+
+const move = (thing, location) => {
+  g$[thing].location = location;
+};
+
+const inventoryList = () => {
+  const items = getAllInLocation("player");
+  if (items.length > 0) {
+    msg(`You have: `);
+    items.map((i) => {
+      msg(`&ensp;${g$[i].desc()}`);
+    });
+  } else {
+    msg(`Presently, you carry nothing.`);
+  }
+};
+
+const take = (thing) => {
+  if (g$[thing].location === g$.location) {
+    move(thing, "player");
+    msg(`Taken.`);
+    if (!g$.firstItem) {
+      msg(
+        `[You can always check your inventory by pressing the <b>I</b> key.]`
+      );
+    }
+  }
+};
+
+const getAllInLocation = (location) => {
+  return Object.keys(g$).filter((o) => g$[o].location === location);
+};
+
+const showRoomDesc = () => {
+  const presentItems = Object.keys(g$)
+    .filter((c) => g$[c].location === g$.location)
+    .map((i) => g$[i]);
+  msg(`
+  
+  ${g$[g$.location].desc()}
+  
+  `);
+  presentItems.map((c) => {
+    if (c.specialDesc) {
+      msg(c.specialDesc());
+    }
+  });
+};
+
+const searchText = (buffer) => {
+  let t = "";
+  cmds = [...cmds].sort((a, b) => {
+    const a1 = a.score ?? 0;
+    const b1 = b.score ?? 0;
+    return b1 - a1;
+  });
+  keyCache.append(buffer);
+    const suggestionCache = suggestionCache
+      .map((c) => {
+        c = c.split(" ");
+        c.shift();
+        return c.join(" ");
+      })
+      .sort((a, b) => a.indexOf(buffer) - b.indexOf(buffer));
+  }
+  suggestionCache = [...suggestionCache.filter((a) => a.indexOf(buffer) > -1)];
+  suggestionCache.sort((a, b) => a.indexOf(buffer) - b.indexOf(buffer));
+  if (suggestionCache.length > 0) {
+    t = getCommon(suggestionCache);
+    if (suggestionCache.length > 1) {
+      if (t === "") {
+        t = suggestionCache[0];
+      }
+    }
+    choices = [...suggestionCache.filter((a) => a.indexOf(t) > -1)];
+  }
+  const r = cmds.map((c) => fixLabel(c, c.$)).filter((f) => f.indexOf(t) > -1);
+  if (r.length === 1) {
+    t = r[0];
+  }
+  return [r, t];
+};
+
+/**
+ * Go to room.
+ * @param {GameLocationID} room
+ */
+let go = (room) => {
+  clear(() => {
+    const s = g$[room].desc();
+    g$.location = room;
+    msg(s);
+    if (!g$[room].hasVisited) {
+      const m =
+        typeof g$[room].firstTime === "function" ? g$[room].firstTime() : "";
+      if (m) {
+        msg(m, { append: true });
+      }
+      g$[room].hasVisited = true;
+      resetSuggestions();
+    }
+  });
+};
+
+function getCommon(arr) {
+  for (let i = 0; i < arr[0].length + 1; i += 1) {
+    for (let n = 1; n < arr.length; n += 1) {
+      if (arr[n][i] !== arr[n - 1][i]) {
+        if (i > 0) {
+          return arr[n - 1].slice(0, i - 1);
+        } else {
+          return arr[n - 1].split(" ")[0];
+        }
+      }
+    }
+  }
+  return arr[0];
+}
+
+const fixLabel = (c, label) => {
+  const name = c?.obj?.name;
+  if (name) {
+    return label.replace("n$", name);
+  } else {
+    return label;
+  }
+};
+
+function getCursor(arr) {
+  if (arr.length === 1) {
+    //return " ✓";
+    return " 🏴‍☠️️";
+  }
+  //return "✍️";
+  return "<div class='cursorBlink'>▌</div>";
+}
+
+function makeMeADancingTurkey() {
+  let suggestions = [];
+  let inputText = "";
+  const main = document.createElement("div");
+  main.className = "main";
+  const pre = document.createElement("pre");
+  const input = document.createElement("div");
+  const page = document.createElement("div");
+  page.className = "page";
+  const cursor = document.createElement("div");
+  const suggestBar = document.createElement("div");
+  suggestBar.className = "suggestBar";
+  cursor.innerHTML = getCursor([]);
+  const upper = document.createElement("div");
+  upper.className = "upperOutput";
+  upper.appendChild(page);
+  const lower = document.createElement("div");
+
+
+  const refreshSuggestBar = () => {
+    const oldSuggestions = `<div class='pageOut'>${suggestBar.innerHTML}</div>`;
+    suggestBar.innerHTML = oldSuggestions;
+    setTimeout(() => {
+      populateSuggestBar();
+    }, 990);
+  }
+
+
+  resetSuggestions = () => {
+    suggestionCache = [];
+    refreshCommands();
+    suggestions = cmds.map((c) => fixLabel(c, c.$));
+    inputText = "";
+    populateSuggestBar();
+  };
+
+  const populateSuggestBar = () => {
+    suggestBar.innerHTML = "";
+    if (suggestions.length > 1) {
+      suggestions.map((s, index) => {
+        const el = document.createElement("div");
+        el.innerText = s;
+        el.style.margin = "1em";
+        el.style.animationName = "page-in";
+        el.style.animationDuration = `${(index + 1) * 0.1}s`;
+        suggestBar.appendChild(el);
+      });
+    }
+    if (suggestions.length === 1) {
+      const el = document.createElement("div");
+      const s = suggestions[0];
+      el.innerText = s;
+      el.style.margin = "1em";
+      el.style.animationName = "expand";
+      el.style.animationDuration = `0.5s`;
+      suggestBar.appendChild(el);
+    }
+  };
+
+  clear = (onCompleted) => {
+    pre.innerHTML = "";
+    const p = document.getElementsByClassName("page")[0];
+    const oldSuggestions = `<div class='pageOut'>${suggestBar.innerHTML}</div>`;
+    const oldPage = `<div class='outFade'>${p.innerHTML}</div>`;
+    suggestBar.innerHTML = oldSuggestions;
+    p.innerHTML = oldPage;
+    setTimeout(() => {
+      suggestBar.innerHTML = "";
+      upper.innerHTML = "";
+      const newPage = document.createElement("div");
+      newPage.className = "page";
+      upper.appendChild(newPage);
+      onCompleted();
+    }, 270);
+  };
+
+  msg = (str, options) => {
+    const p = document.getElementsByClassName("page")[0];
+
+    // private function to handle array printing in msg
+    const incrementPrint = (arr) => {
+      const showFirst = arr[0];
+      const stringToHash = () => {
+        let hash = 0;
+        if (showFirst.length == 0) {
+          return hash;
+        }
+        for (i = 0; i < showFirst.length; i++) {
+          const char = showFirst.charCodeAt(i);
+          hash = (hash << 5) - hash + char;
+          hash = hash & hash;
+        }
+        return hash;
+      };
+      const id = `i${stringToHash()}`;
+      const value = g$[id] ?? 0;
+      if (value) {
+        msg(arr[value]);
+        if (value < arr.length - 1) {
+          g$[id] = value + 1;
+        }
+      } else {
+        g$[id] = 1;
+        msg(showFirst);
+      }
+    };
+
+    if (Array.isArray(str)) {
+      incrementPrint(str, options);
+    } else {
+      if (!options?.skipSkylight) {
+        str = jig(str);
+      }
+      p.innerHTML += str;
+    }
+  };
+
+  lower.className = "lowerOutput";
+  input.className = "input";
+  lower.appendChild(suggestBar);
+  input.appendChild(pre);
+  input.appendChild(cursor);
+  main.appendChild(upper);
+  main.appendChild(lower);
+  main.appendChild(input);
+  document.body.appendChild(main);
+
+  document.body.addEventListener("keydown", (ev) => {
+    const processKey = () => {
+      const permitted = "abcdefghijklmnopqrstuvwxyz";
+      const key = ev.key.toLowerCase();
+      if (key === "backspace") {
+        resetSuggestions();
+      }
+      if (permitted.indexOf(key) > -1) {
+        console.log(suggestions, suggestionCache);
+        const c = suggestions.length > 0 ? suggestions : cmds.map((c) => fixLabel(c, c.$));
+        const x = c.filter((s) => s.indexOf(key) > -1);
+        if (x.length > 0) {
+          [suggestions, inputText] = searchText(key, suggestionCache);
+          refreshSuggestBar();
+        } else {
+          resetSuggestions();
+        }
+      }
+      if (key === "enter") {
+        if (suggestions.length === 1) {
+          execute(suggestions[0]);
+          resetSuggestions();
+        }
+      }
+
+      pre.innerText = inputText;
+      cursor.innerHTML = getCursor(suggestions);
+    };
+    processKey();
+  });
+}
+
+
+  // search for common butterballs
+  function getCommon(arr) {
+    for (let i = 0; i < arr[0].$.length + 1; i += 1) {
+      for (let n = 1; n < arr.length; n += 1) {
+        if (arr[n].$[i] !== arr[n - 1].$[i]) {
+          if (i > 0) {
+            return getLabel(arr[n - 1]).slice(0, i - 1);
+          } else {
+            return getLabel(arr[n - 1]).split(" ")[0];
+          }
+        }
+      }
+    }
+    return "";
+  }

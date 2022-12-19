@@ -1,0 +1,20 @@
+{
+  "name": "jubilant-turkey",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node start.cjs",
+    "deploy": "gh-pages -d public",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "gh-pages": "^4.0.0",
+    "jsdoc": "^4.0.0",
+    "live-server": "^1.2.2",
+    "uglify-js": "^3.17.4"
+  }
+}
